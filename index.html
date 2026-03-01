@@ -1,0 +1,578 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>cc-burnout — Burnout Risk Detector for Claude Code</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --border: #30363d;
+    --text: #e6edf3;
+    --dim: #8b949e;
+    --red: #f85149;
+    --orange: #d29922;
+    --yellow: #e3b341;
+    --green: #3fb950;
+    --accent: #f85149;
+    --bar-bg: #21262d;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', monospace; min-height: 100vh; }
+
+  .header { text-align: center; padding: 48px 24px 32px; }
+  .header h1 { font-size: 2.2rem; font-weight: 700; }
+  .header h1 span { color: var(--accent); }
+  .header p { color: var(--dim); margin-top: 8px; font-size: 0.95rem; }
+
+  .upload-zone {
+    max-width: 600px;
+    margin: 0 auto 40px;
+    padding: 0 24px;
+  }
+  .drop-area {
+    border: 2px dashed var(--border);
+    border-radius: 12px;
+    padding: 48px 24px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s;
+    background: var(--surface);
+  }
+  .drop-area:hover, .drop-area.drag-over { border-color: var(--accent); background: #1a1f27; }
+  .drop-area .icon { font-size: 2.5rem; margin-bottom: 12px; }
+  .drop-area h3 { font-size: 1.1rem; margin-bottom: 6px; }
+  .drop-area p { color: var(--dim); font-size: 0.85rem; }
+  .drop-area input { display: none; }
+
+  .container { max-width: 760px; margin: 0 auto; padding: 0 24px 80px; }
+
+  .score-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 32px;
+    margin-bottom: 24px;
+    text-align: center;
+  }
+  .score-number {
+    font-size: 5rem;
+    font-weight: 700;
+    line-height: 1;
+    margin-bottom: 8px;
+  }
+  .score-number.critical { color: var(--red); }
+  .score-number.high { color: var(--orange); }
+  .score-number.moderate { color: var(--yellow); }
+  .score-number.low { color: var(--green); }
+  .score-label { font-size: 1.2rem; font-weight: 600; margin-bottom: 8px; }
+  .score-sublabel { color: var(--dim); font-size: 0.85rem; }
+
+  .gauge {
+    background: var(--bar-bg);
+    border-radius: 6px;
+    height: 8px;
+    margin: 20px auto;
+    max-width: 300px;
+    overflow: hidden;
+  }
+  .gauge-fill {
+    height: 100%;
+    border-radius: 6px;
+    transition: width 0.8s ease;
+  }
+  .gauge-fill.critical { background: linear-gradient(90deg, #f85149, #ff6b6b); }
+  .gauge-fill.high { background: linear-gradient(90deg, #d29922, #e3b341); }
+  .gauge-fill.moderate { background: linear-gradient(90deg, #e3b341, #f0c842); }
+  .gauge-fill.low { background: linear-gradient(90deg, #3fb950, #56d364); }
+
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px; }
+  @media(max-width: 560px) { .grid-2 { grid-template-columns: 1fr; } }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px;
+  }
+  .card-title { font-size: 0.75rem; font-weight: 600; color: var(--dim); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 12px; }
+
+  .stat-row { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--border); }
+  .stat-row:last-child { border-bottom: none; }
+  .stat-name { color: var(--dim); font-size: 0.85rem; }
+  .stat-val { font-weight: 600; font-size: 0.95rem; }
+  .stat-val.warn { color: var(--orange); }
+  .stat-val.danger { color: var(--red); }
+  .stat-val.ok { color: var(--green); }
+
+  .signals-section { margin-bottom: 24px; }
+  .section-title { font-size: 0.9rem; font-weight: 600; color: var(--dim); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 12px; }
+
+  .signal-item {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 16px;
+    margin-bottom: 8px;
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+  }
+  .signal-icon { font-size: 1.1rem; flex-shrink: 0; }
+  .signal-label { font-weight: 600; font-size: 0.9rem; margin-bottom: 2px; }
+  .signal-detail { color: var(--dim); font-size: 0.8rem; }
+
+  .recs-section { margin-bottom: 24px; }
+  .rec-item {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
+    border-radius: 8px;
+    padding: 12px 16px;
+    margin-bottom: 8px;
+    font-size: 0.88rem;
+    line-height: 1.5;
+  }
+
+  .npx-box {
+    background: #0d1117;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 16px;
+    font-family: monospace;
+    font-size: 0.85rem;
+    color: var(--green);
+    margin-top: 8px;
+  }
+
+  .footer-note {
+    text-align: center;
+    color: var(--dim);
+    font-size: 0.78rem;
+    margin-top: 32px;
+    line-height: 1.6;
+  }
+  .footer-note a { color: var(--accent); text-decoration: none; }
+
+  .btn-demo {
+    display: inline-block;
+    margin-top: 12px;
+    padding: 8px 20px;
+    background: #21262d;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--dim);
+    font-size: 0.82rem;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .btn-demo:hover { border-color: var(--accent); color: var(--text); }
+
+  #loading { display: none; text-align: center; padding: 48px; color: var(--dim); }
+  #results { display: none; }
+  .spinner { display: inline-block; width: 20px; height: 20px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.7s linear infinite; vertical-align: middle; margin-right: 8px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .twitter-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    background: #1d9bf0;
+    border: none;
+    border-radius: 20px;
+    color: white;
+    font-size: 0.82rem;
+    font-weight: 600;
+    cursor: pointer;
+    text-decoration: none;
+    margin-top: 16px;
+    transition: opacity 0.15s;
+  }
+  .twitter-btn:hover { opacity: 0.85; }
+
+  .week-bars { display: flex; gap: 4px; align-items: flex-end; height: 80px; margin-top: 8px; }
+  .week-bar-wrap { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+  .week-bar { width: 100%; border-radius: 3px 3px 0 0; min-height: 2px; transition: height 0.4s; }
+  .week-bar-label { font-size: 0.6rem; color: var(--dim); }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>cc-<span>burnout</span> 🔥</h1>
+  <p>Burnout risk detector for Claude Code. cc-score rewards high usage — cc-burnout gives the opposite signal.</p>
+</div>
+
+<div class="upload-zone">
+  <div class="drop-area" id="dropArea">
+    <div class="icon">📁</div>
+    <h3>Drop your <code>~/.claude</code> folder here</h3>
+    <p>All processing happens in your browser. Nothing is uploaded.</p>
+    <input type="file" id="folderInput" webkitdirectory multiple accept=".jsonl">
+    <div style="margin-top:16px;">
+      <button class="btn-demo" onclick="loadDemoData()">Try with demo data</button>
+    </div>
+  </div>
+</div>
+
+<div id="loading"><span class="spinner"></span>Analyzing sessions...</div>
+
+<div class="container" id="results">
+  <div class="score-card">
+    <div class="score-number" id="scoreNum">—</div>
+    <div class="score-label" id="scoreLabel">Analyzing...</div>
+    <div class="gauge"><div class="gauge-fill" id="gaugeFill" style="width:0%"></div></div>
+    <div class="score-sublabel" id="scoreSub"></div>
+    <br>
+    <a class="twitter-btn" id="twitterBtn" href="#" target="_blank">Share on X</a>
+  </div>
+
+  <div class="grid-2">
+    <div class="card">
+      <div class="card-title">Key Stats</div>
+      <div id="statsRows"></div>
+    </div>
+    <div class="card">
+      <div class="card-title">Weekly Hours (last 8 weeks)</div>
+      <div class="week-bars" id="weekBars"></div>
+    </div>
+  </div>
+
+  <div class="signals-section" id="signalsSection">
+    <div class="section-title">Risk Signals</div>
+    <div id="signalsList"></div>
+  </div>
+
+  <div class="recs-section">
+    <div class="section-title">Recommendations</div>
+    <div id="recsList"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Run from terminal</div>
+    <div class="npx-box">npx cc-burnout</div>
+  </div>
+
+  <div class="footer-note">
+    <p>Part of <a href="https://yurukusa.github.io/cc-toolkit/" target="_blank">cc-toolkit</a> — 37 free tools for Claude Code users</p>
+    <p style="margin-top:4px">Zero dependencies · All data stays in your browser · MIT License</p>
+  </div>
+</div>
+
+<script>
+const THRESHOLDS = {
+  lateNightHour: 23,
+  streakDanger: 21,
+  streakCritical: 30,
+  rampUpThreshold: 1.3,
+};
+
+function getDayKey(d) { return d.toISOString().slice(0,10); }
+function getWeekKey(date) {
+  const d = new Date(date);
+  d.setHours(0,0,0,0);
+  const day = d.getDay();
+  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+  d.setDate(diff);
+  return d.toISOString().slice(0,10);
+}
+
+async function readJsonlLines(file) {
+  return new Promise(resolve => {
+    const reader = new FileReader();
+    reader.onload = e => {
+      const lines = e.target.result.split('\n');
+      const out = [];
+      for (const l of lines) {
+        if (!l.trim()) continue;
+        try { out.push(JSON.parse(l)); } catch {}
+      }
+      resolve(out);
+    };
+    reader.readAsText(file);
+  });
+}
+
+async function loadFromFiles(files) {
+  const jsonlFiles = Array.from(files).filter(f => f.name.endsWith('.jsonl') && f.webkitRelativePath.includes('/projects/'));
+  const sessions = [];
+
+  for (const file of jsonlFiles) {
+    try {
+      const entries = await readJsonlLines(file);
+      const timestamps = entries
+        .filter(e => e.type === 'user' || e.type === 'assistant')
+        .map(e => e.timestamp)
+        .filter(Boolean)
+        .map(t => new Date(t).getTime())
+        .filter(t => !isNaN(t));
+      if (timestamps.length >= 2) {
+        const start = Math.min(...timestamps);
+        const end = Math.max(...timestamps);
+        if (end > start + 60000) {
+          sessions.push({ start: new Date(start), end: new Date(end), durationMin: (end - start) / 60000 });
+        }
+      }
+    } catch {}
+  }
+  return sessions.sort((a,b) => a.start - b.start);
+}
+
+function groupByDay(sessions) {
+  const map = {};
+  for (const s of sessions) {
+    const k = getDayKey(s.start);
+    if (!map[k]) map[k] = { sessions:[], totalMin:0, date:s.start };
+    map[k].sessions.push(s);
+    map[k].totalMin += s.durationMin;
+  }
+  return map;
+}
+
+function groupByWeek(sessions) {
+  const map = {};
+  for (const s of sessions) {
+    const k = getWeekKey(s.start);
+    if (!map[k]) map[k] = { sessions:[], totalMin:0 };
+    map[k].sessions.push(s);
+    map[k].totalMin += s.durationMin;
+  }
+  return map;
+}
+
+function checkStreaks(dayMap, days) {
+  let maxStreak = 0, cur = 0, breaks = 0;
+  for (const d of days) {
+    if (dayMap[d]) { cur++; if (cur > maxStreak) maxStreak = cur; }
+    else { if (cur > 0) breaks++; cur = 0; }
+  }
+  return { maxStreak, breaksCount: breaks };
+}
+
+function checkLateNights(sessions) {
+  const late = sessions.filter(s => { const h = s.start.getHours(); return h >= THRESHOLDS.lateNightHour || h < 4; });
+  const recent = late.filter(s => Date.now() - s.start.getTime() < 14*86400000).length;
+  return { count: late.length, ratio: sessions.length ? late.length/sessions.length : 0, recent };
+}
+
+function checkWeekendWork(sessions) {
+  const we = sessions.filter(s => s.start.getDay()===0||s.start.getDay()===6).length;
+  return {
+    weekendCount: we,
+    weekendRatio: sessions.length ? we/sessions.length : 0,
+    weekendDays: [...new Set(sessions.filter(s=>s.start.getDay()===0||s.start.getDay()===6).map(s=>getDayKey(s.start)))].length
+  };
+}
+
+function checkSessionLengths(sessions) {
+  const durs = sessions.map(s=>s.durationMin);
+  const avg = durs.reduce((a,b)=>a+b,0)/(durs.length||1);
+  const max = Math.max(...durs,0);
+  const longSessions = sessions.filter(s=>s.durationMin>180).length;
+  const recent = sessions.filter(s=>Date.now()-s.start.getTime()<7*86400000);
+  const recentAvg = recent.length ? recent.reduce((a,s)=>a+s.durationMin,0)/recent.length : 0;
+  return { avg, max, longSessions, recentAvg, recentCount: recent.length };
+}
+
+function checkRampUp(weekMap) {
+  const weeks = Object.keys(weekMap).sort();
+  if (weeks.length < 3) return { trend:'insufficient_data', ratio:0 };
+  const [w1,w2,w3] = weeks.slice(-3).map(w=>weekMap[w].totalMin);
+  if (!w1) return { trend:'insufficient_data', ratio:0 };
+  const ratio = w3/w1;
+  return {
+    trend: ratio > THRESHOLDS.rampUpThreshold ? 'escalating' : ratio < (1/THRESHOLDS.rampUpThreshold) ? 'declining' : 'stable',
+    ratio,
+    w1Hours: (w1/60).toFixed(1), w3Hours: (w3/60).toFixed(1)
+  };
+}
+
+function calculateScore(factors) {
+  let score = 0;
+  const signals = [];
+  const { maxStreak, breaksCount } = factors.streak;
+
+  if (maxStreak >= 30) { score+=25; signals.push({icon:'🔴',label:`${maxStreak}日連続稼働`,detail:'30日以上の連続は燃え尽きのサイン',w:25}); }
+  else if (maxStreak >= 21) { score+=15; signals.push({icon:'🟠',label:`${maxStreak}日連続稼働`,detail:'21日以上は要注意',w:15}); }
+  else if (maxStreak >= 14) { score+=8; signals.push({icon:'🟡',label:`${maxStreak}日連続稼働`,detail:'2週間以上継続中',w:8}); }
+
+  if (breaksCount < 2 && factors.totalDays > 14) { score+=10; signals.push({icon:'🟠',label:'休息がほぼない',detail:`${factors.totalDays}日中の休日が${breaksCount}日以下`,w:10}); }
+
+  const { ratio: lateR, recent: lateRec } = factors.lateNights;
+  if (lateR > 0.3 || lateRec >= 5) { score+=20; signals.push({icon:'🔴',label:`深夜セッション多数 (${Math.round(lateR*100)}%)`,detail:'睡眠の質が下がると判断力も落ちる',w:20}); }
+  else if (lateR > 0.15 || lateRec >= 2) { score+=10; signals.push({icon:'🟡',label:`深夜作業あり (${Math.round(lateR*100)}%)`,detail:'夜型にシフトしている',w:10}); }
+
+  const { weekendRatio: weR, weekendDays: weD } = factors.weekendWork;
+  if (weR > 0.4 || weD > 8) { score+=15; signals.push({icon:'🟠',label:`週末も稼働 (${Math.round(weR*100)}%)`,detail:'オフがない = 回復できない',w:15}); }
+  else if (weR > 0.2) { score+=7; signals.push({icon:'🟡',label:`週末作業あり (${Math.round(weR*100)}%)`,detail:'月2回程度なら許容範囲',w:7}); }
+
+  const { recentAvg, longSessions } = factors.sessionLengths;
+  if (recentAvg > 180) { score+=20; signals.push({icon:'🔴',label:`平均セッション${Math.round(recentAvg)}分（直近1週）`,detail:'3時間超えのセッションは集中力の幻想',w:20}); }
+  else if (recentAvg > 120) { score+=10; signals.push({icon:'🟡',label:`平均セッション${Math.round(recentAvg)}分（直近1週）`,detail:'2時間超えが続いている',w:10}); }
+  if (longSessions > 3) { score+=5; signals.push({icon:'🟡',label:`3時間超えセッション: ${longSessions}回`,detail:'長時間でも質が低下している可能性',w:5}); }
+
+  const { trend, ratio, w1Hours, w3Hours } = factors.rampUp;
+  if (trend === 'escalating' && ratio > 1.5) { score+=20; signals.push({icon:'🔴',label:`稼働急増 (${w1Hours}h→${w3Hours}h/週)`,detail:'急激な増加は燃え尽きの予兆',w:20}); }
+  else if (trend === 'escalating') { score+=10; signals.push({icon:'🟡',label:`稼働増加傾向 (${w1Hours}h→${w3Hours}h/週)`,detail:'30%以上の週次増加に注意',w:10}); }
+
+  const s = Math.min(100, score);
+  const lvl = s>=75?{cls:'critical',label:'Critical 🔴',msg:'今すぐ強制休暇が必要なレベル'} :
+              s>=50?{cls:'high',label:'High Risk 🟠',msg:'燃え尽き予備軍。今週中に対策を'} :
+              s>=25?{cls:'moderate',label:'Moderate ⚠️',msg:'警告サイン出始め。早めに手を打て'} :
+              {cls:'low',label:'Low Risk ✅',msg:'現在のペースは持続可能'};
+  return { score: s, level: lvl, signals };
+}
+
+function getRecs(score, signals) {
+  const recs = [];
+  if (score>=75) { recs.push('【緊急】今日は強制休日にしてください。コードを開かない'); recs.push('翌週から週1日のオフを強制スケジュールに入れる'); }
+  else if (score>=50) { recs.push('今週中に半日以上の完全休息を入れる'); recs.push('セッションに2時間の上限を設けてアラームをセット'); }
+  else if (score>=25) { recs.push('週末の作業は午前中で切り上げる習慣をつける'); recs.push('深夜作業前に「これは明日でもいいか？」と自問する'); }
+  if (signals.some(s=>s.label.includes('深夜'))) recs.push('23時以降のセッション開始を禁止する（ルール化）');
+  if (signals.some(s=>s.label.includes('セッション'))) recs.push('90分ごとに強制10分休憩（ポモドーロ）を試す');
+  if (recs.length===0) recs.push('現状のペースは持続可能。このまま継続してOK');
+  return recs;
+}
+
+function render(sessions, daysN) {
+  const cutoff = new Date(Date.now() - daysN*86400000);
+  const filtered = sessions.filter(s=>s.start>=cutoff);
+  const days = [];
+  const d = new Date(cutoff); while(d<=new Date()) { days.push(getDayKey(d)); d.setDate(d.getDate()+1); }
+  const dayMap = groupByDay(filtered);
+  const weekMap = groupByWeek(filtered);
+  const factors = {
+    streak: checkStreaks(dayMap, days),
+    lateNights: checkLateNights(filtered),
+    weekendWork: checkWeekendWork(filtered),
+    sessionLengths: checkSessionLengths(filtered),
+    rampUp: checkRampUp(weekMap),
+    totalDays: days.length,
+    activeDays: Object.keys(dayMap).length,
+    totalSessions: filtered.length,
+  };
+  const { score, level, signals } = calculateScore(factors);
+  const recs = getRecs(score, signals);
+
+  document.getElementById('loading').style.display = 'none';
+  document.getElementById('results').style.display = 'block';
+
+  const numEl = document.getElementById('scoreNum');
+  numEl.textContent = score + '/100';
+  numEl.className = 'score-number ' + level.cls;
+  document.getElementById('scoreLabel').textContent = level.label;
+  document.getElementById('scoreSub').textContent = level.msg;
+  const fill = document.getElementById('gaugeFill');
+  fill.style.width = score + '%';
+  fill.className = 'gauge-fill ' + level.cls;
+
+  // Stats
+  const statsEl = document.getElementById('statsRows');
+  const { maxStreak } = factors.streak;
+  const lateP = Math.round(factors.lateNights.ratio*100);
+  const weP = Math.round(factors.weekendWork.weekendRatio*100);
+  const avgMin = Math.round(factors.sessionLengths.avg);
+  const statData = [
+    ['総セッション数', filtered.length, ''],
+    ['アクティブ日数', `${factors.activeDays}/${days.length}日`, ''],
+    ['最長連続稼働', `${maxStreak}日`, maxStreak>=30?'danger':maxStreak>=21?'warn':'ok'],
+    ['深夜セッション率', `${lateP}%`, lateP>30?'danger':lateP>15?'warn':'ok'],
+    ['週末稼働率', `${weP}%`, weP>40?'danger':weP>20?'warn':'ok'],
+    ['平均セッション長', `${avgMin}分`, avgMin>180?'danger':avgMin>120?'warn':'ok'],
+  ];
+  statsEl.innerHTML = statData.map(([n,v,c])=>`<div class="stat-row"><span class="stat-name">${n}</span><span class="stat-val ${c}">${v}</span></div>`).join('');
+
+  // Week bars
+  const weekKeys = Object.keys(weekMap).sort().slice(-8);
+  const maxH = Math.max(...weekKeys.map(k=>(weekMap[k]||{totalMin:0}).totalMin), 1);
+  document.getElementById('weekBars').innerHTML = weekKeys.map(k=>{
+    const h = (weekMap[k]||{totalMin:0}).totalMin/60;
+    const pct = Math.round((h/( maxH/60))*70);
+    const shortKey = k.slice(5);
+    return `<div class="week-bar-wrap"><div class="week-bar" style="height:${pct}px;background:var(--accent);opacity:0.8"></div><div class="week-bar-label">${shortKey}</div></div>`;
+  }).join('');
+
+  // Signals
+  const sigEl = document.getElementById('signalsList');
+  if (signals.length===0) {
+    sigEl.innerHTML = '<div class="signal-item"><span class="signal-icon">✅</span><div><div class="signal-label">リスクシグナルなし</div><div class="signal-detail">30日分のデータに燃え尽きの兆候は見られません</div></div></div>';
+  } else {
+    sigEl.innerHTML = signals.map(s=>`<div class="signal-item"><span class="signal-icon">${s.icon}</span><div><div class="signal-label">${s.label}</div><div class="signal-detail">${s.detail}</div></div></div>`).join('');
+  }
+
+  // Recs
+  document.getElementById('recsList').innerHTML = recs.map(r=>`<div class="rec-item">→ ${r}</div>`).join('');
+
+  // Twitter
+  const tweet = `Claude Codeの燃え尽きリスクをチェックした。\n\n${score}/100 — ${level.label}\n\ncc-burnout (ブラウザで即計測、インストール不要)\nhttps://yurukusa.github.io/cc-burnout/\n\n#ClaudeCode #devhealth`;
+  document.getElementById('twitterBtn').href = 'https://x.com/intent/tweet?text=' + encodeURIComponent(tweet);
+}
+
+// File drop/select
+const dropArea = document.getElementById('dropArea');
+const folderInput = document.getElementById('folderInput');
+
+dropArea.addEventListener('click', () => folderInput.click());
+dropArea.addEventListener('dragover', e => { e.preventDefault(); dropArea.classList.add('drag-over'); });
+dropArea.addEventListener('dragleave', () => dropArea.classList.remove('drag-over'));
+dropArea.addEventListener('drop', async e => {
+  e.preventDefault();
+  dropArea.classList.remove('drag-over');
+  document.getElementById('loading').style.display = 'block';
+  document.getElementById('results').style.display = 'none';
+  dropArea.closest('.upload-zone').style.display = 'none';
+  const items = Array.from(e.dataTransfer.items);
+  const files = [];
+  for (const item of items) {
+    if (item.kind === 'file') {
+      const entry = item.webkitGetAsEntry();
+      if (entry) await collectFiles(entry, files);
+    }
+  }
+  const sessions = await loadFromFiles(files);
+  render(sessions, 30);
+});
+folderInput.addEventListener('change', async () => {
+  document.getElementById('loading').style.display = 'block';
+  document.getElementById('results').style.display = 'none';
+  dropArea.closest('.upload-zone').style.display = 'none';
+  const sessions = await loadFromFiles(folderInput.files);
+  render(sessions, 30);
+});
+
+async function collectFiles(entry, result) {
+  if (entry.isFile) {
+    await new Promise(res => entry.file(f => { result.push(f); res(); }));
+  } else if (entry.isDirectory) {
+    const reader = entry.createReader();
+    const entries = await new Promise(res => reader.readEntries(res));
+    for (const e of entries) await collectFiles(e, result);
+  }
+}
+
+function loadDemoData() {
+  const sessions = [];
+  const now = Date.now();
+  // 30 days of demo data: heavy usage, late nights, weekends
+  for (let i = 0; i < 30; i++) {
+    const dayBase = now - i * 86400000;
+    const numSessions = Math.floor(2 + Math.random() * 4);
+    for (let j = 0; j < numSessions; j++) {
+      const startOffset = Math.floor(Math.random() * 20) * 3600000;
+      const dur = 60 + Math.floor(Math.random() * 240);
+      const start = new Date(dayBase - startOffset);
+      // Add some late nights (40% chance)
+      if (Math.random() < 0.4) start.setHours(23 + Math.floor(Math.random() * 2));
+      sessions.push({ start, end: new Date(start.getTime() + dur * 60000), durationMin: dur });
+    }
+  }
+  document.getElementById('loading').style.display = 'block';
+  document.getElementById('results').style.display = 'none';
+  document.querySelector('.upload-zone').style.display = 'none';
+  setTimeout(() => render(sessions, 30), 400);
+}
+</script>
+</body>
+</html>
