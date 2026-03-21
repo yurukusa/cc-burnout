@@ -1,18 +1,25 @@
 {
   "name": "cc-burnout",
   "version": "1.0.0",
-  "description": "Detect burnout risk from Claude Code usage patterns — before you hit the wall",
+  "description": "Detect burnout risk from Claude Code usage patterns \u2014 before you hit the wall",
   "bin": {
     "cc-burnout": "./cli.js"
   },
   "scripts": {
     "start": "node cli.js"
   },
-  "keywords": ["claude-code", "burnout", "wellbeing", "developer-health", "productivity"],
+  "keywords": [
+    "claude-code",
+    "burnout",
+    "wellbeing",
+    "developer-health",
+    "productivity"
+  ],
   "author": "yurukusa",
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/yurukusa/cc-burnout"
-  }
+  },
+  "homepage": "https://github.com/yurukusa/cc-burnout#readme"
 }
